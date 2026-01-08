@@ -17,6 +17,8 @@ import {
   isHealthRelated,
   irrelevantMessageResponse,
   processUserAnswer,
+  inferPossibleDiseases,
+  detectFever,
   Recommendation
 } from "@/lib/triageLogic";
 
@@ -38,6 +40,8 @@ const ChatInterface = () => {
     duration: "",
     severity: 0,
     additional: [] as string[],
+    hasFever: false,
+    possibleDiseases: [] as string[],
     redFlag: null as null | { message: string; action: string },
   });
 
@@ -130,6 +134,7 @@ const ChatInterface = () => {
     }
 
     switch (triageState.step) {
+      // First user message: capture main symptom and ask about additional symptoms
       case 0:
         setTriageState(prev => ({
           ...prev,
@@ -138,23 +143,47 @@ const ChatInterface = () => {
           category: categorizeSymptom(text),
         }));
         await simulateTyping(() =>
-          addMessage("assistant", TRIAGE_QUESTIONS[0].question)
+          addMessage("assistant", "Do you have any other symptoms?")
         );
         break;
 
+      // User replies with additional symptoms — infer conditions and fever automatically
       case 1:
+        {
+          const additional = text.trim().toLowerCase();
+          const additionalArr = additional === "no" ? [] : [additional];
+          // infer diseases and fever
+          const possible = inferPossibleDiseases(text, additionalArr);
+          const hasF = detectFever(text, additionalArr);
+          setTriageState(prev => ({
+            ...prev,
+            step: 2,
+            additional: additionalArr,
+            hasFever: hasF,
+            possibleDiseases: possible,
+            category: hasF ? "infection" : prev.category,
+          }));
+          // Show the inferred possibilities to the user briefly
+          await simulateTyping(() => addMessage("assistant", `Based on symptoms, possible: ${possible.slice(0,3).join(", ") || "unspecified"}.`));
+          await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[0].question));
+        }
+        break;
+
+      // Age (was case 1 previously)
+      case 2:
         {
           const res = processUserAnswer(1, text);
           if (!res.advance) {
             await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
             return;
           }
-          setTriageState(prev => ({ ...prev, step: 2, age: res.value ?? text }));
+          setTriageState(prev => ({ ...prev, step: 3, age: res.value ?? text }));
           await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[1].question));
         }
         break;
 
-      case 2:
+      // Existing conditions (was case 2)
+      case 3:
         {
           const res = processUserAnswer(2, text);
           if (!res.advance) {
@@ -163,26 +192,30 @@ const ChatInterface = () => {
           }
           setTriageState(prev => ({
             ...prev,
-            step: 3,
+            step: 4,
             conditions: (res.value as string).split(",").map(s => s.trim()),
           }));
           await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[2].question));
         }
         break;
 
-      case 3:
+      // Duration (was case 3)
+      case 4:
         {
           const res = processUserAnswer(3, text);
           if (!res.advance) {
             await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
             return;
           }
-          setTriageState(prev => ({ ...prev, step: 4, duration: res.value ?? text }));
-          await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[3].question));
+          setTriageState(prev => ({ ...prev, step: 5, duration: res.value ?? text }));
+          // Show duration options in button-like format
+          const durationMsg = `${TRIAGE_QUESTIONS[2].question}\n[Few hours] [1 day] [2 days] [3 days] [More than 3 days]`;
+          await simulateTyping(() => addMessage("assistant", durationMsg));
         }
         break;
 
-      case 4:
+      // Severity (was case 4)
+      case 5:
         {
           const res = processUserAnswer(4, text);
           if (!res.advance) {
@@ -191,30 +224,40 @@ const ChatInterface = () => {
           }
           setTriageState(prev => ({
             ...prev,
-            step: 5,
+            step: 6,
             severity: ((res.value as number) ?? parseInt(text)) || 5,
           }));
           await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[4].question));
         }
         break;
 
-      case 5:
+      // Final additional symptoms / wrap up (was case 5)
+      case 6:
         {
           const res = processUserAnswer(5, text);
           if (!res.advance) {
             await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
             return;
           }
-          setTriageState(prev => ({ ...prev, additional: (res.value as string) === "no" ? [] : [(res.value as string)], }));
+          setTriageState(prev => ({ ...prev, additional: (res.value as string) === "no" ? [] : [(res.value as string)] }));
 
           await simulateTyping(() => addMessage("assistant", "Analyzing your symptoms…"));
 
+          // Generate disease inferences
+          const possibleDiseases = inferPossibleDiseases(triageState.symptom, triageState.additional);
+          setTriageState(prev => ({ ...prev, possibleDiseases }));
+
           const rec = generateRecommendation(
-            triageState.severity,
+            triageState.severity || 0,
             triageState.duration,
             triageState.redFlag !== null,
             triageState.category
           );
+
+          // Append possible diseases to recommendation
+          if (possibleDiseases && possibleDiseases.length > 0) {
+            rec.description += `\n\n**Possible conditions:** ${possibleDiseases.slice(0, 5).join(", ")}`;
+          }
 
           setRecommendation(rec);
         }
