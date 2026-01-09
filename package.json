@@ -3,8 +3,6 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "predeploy": "npm run build",
-  "deploy": "gh-pages -d dist",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,6 +11,7 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
@@ -49,7 +48,6 @@
     "cors": "^2.8.5",
     "date-fns": "^3.6.0",
     "dotenv": "^17.2.3",
-    "emailjs-com": "^3.2.0",
     "embla-carousel-react": "^8.6.0",
     "express": "^5.2.1",
     "firebase": "^12.7.0",
