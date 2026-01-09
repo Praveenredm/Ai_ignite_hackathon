@@ -173,39 +173,39 @@ src/
 
 ## 🛡️ Safety & Ethics
 
--❌ No real patient data stored
--✅ Synthetic / mock data only
--🚨 Emergency escalation always prioritized
--📜 Clear medical disclaimer shown
--🔒 Privacy-first approach
+- ❌ No real patient data stored
+- ✅ Synthetic / mock data only
+- 🚨 Emergency escalation always prioritized
+- 📜 Clear medical disclaimer shown
+- 🔒 Privacy-first approach
 ---
 
 ## 📚 Sources & Guidelines
 
--🌍 World Health Organization (WHO)
--🇺🇸 Centers for Disease Control and Prevention (CDC)
--🇬🇧 NICE Clinical Guidelines
--🇮🇳 Government of India Health Portals
+- 🌍 World Health Organization (WHO)
+- 🇺🇸 Centers for Disease Control and Prevention (CDC)
+- 🇬🇧 NICE Clinical Guidelines
+- 🇮🇳 Government of India Health Portals
 ---
 
 ## 🔮 Future Enhancements
 
--🗣️ Voice-based symptom input
--📱 WhatsApp / SMS notifications
--🏥 Live hospital availability
--🤖 ML-assisted triage (with safeguards)
--📊 Doctor dashboard
+- 🗣️ Voice-based symptom input
+- 📱 WhatsApp / SMS notifications
+- 🏥 Live hospital availability
+- 🤖 ML-assisted triage (with safeguards)
+- 📊 Doctor dashboard
 
 ---
 
 ## 🙌 Conclusion
 
--Care Navigator demonstrates how technology can:
--Reduce healthcare confusion
--Improve triage safety
--Save time for patients and hospitals
--Provide accessible, multilingual healthcare guidance
--🩵 Built with care, safety, and impact in mind.
+- Care Navigator demonstrates how technology can:
+- Reduce healthcare confusion
+- Improve triage safety
+- Save time for patients and hospitals
+- Provide accessible, multilingual healthcare guidance
+- 🩵 Built with care, safety, and impact in mind.
 
 ---
 
