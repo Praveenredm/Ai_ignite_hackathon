@@ -173,7 +173,6 @@ Data: Mock hospitals, doctors, slots
 Architecture: Modular, scalable, component-driven
 
 🗂️ Project Structure
-
 src/
 ├── components/
 │   ├── ChatInterface.tsx
@@ -200,7 +199,6 @@ src/
 │
 └── App.tsx
 
-
 🧪 Evaluation Readiness (For Judges)
 Criteria	Status
 Safety	✅
@@ -210,7 +208,6 @@ Booking flow	✅
 Time to recommendation	< 60s
 Agentic behavior	✅
 Multilingual bonus	✅
-
 ⚠️ Medical Disclaimer
 
 This application is for informational purposes only and does not constitute medical advice, diagnosis, or treatment.
@@ -224,8 +221,5 @@ It is a safe, explainable, and deployable healthcare navigation system designed 
 
 👨‍💻 Author
 
-Praveen P
-Ranjith R
-RevanthKumar
-Keishore
-AI Ignite Hackathon 2026(SMVEC)
+Praveen
+AI Ignite Hackathon 2026
