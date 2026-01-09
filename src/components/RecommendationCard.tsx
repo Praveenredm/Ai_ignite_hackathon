@@ -1,5 +1,12 @@
-import { AlertTriangle, Stethoscope, Heart } from "lucide-react";
+import { AlertTriangle, Stethoscope, Heart, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Recommendation } from "@/lib/triageLogic";
+
+interface RecommendationCardProps {
+  recommendation: Recommendation;
+  onRestart: () => void;
+  onBookAppointment?: () => void;
+}
 
 const levelStyles = {
   "urgent": {
@@ -19,7 +26,7 @@ const levelStyles = {
   }
 };
 
-const RecommendationCard = ({ recommendation, onRestart }) => {
+const RecommendationCard = ({ recommendation, onRestart, onBookAppointment }: RecommendationCardProps) => {
   if (!recommendation) return null; // prevents crash
 
   const { level, title, description, actions = [] } = recommendation;
@@ -63,9 +70,16 @@ const RecommendationCard = ({ recommendation, onRestart }) => {
           </Button>
         </a>
       ) : (
-        <Button className="w-full mt-3" onClick={onRestart}>
-          Restart Assessment
-        </Button>
+        <div className="flex flex-col gap-2 mt-3">
+          {onBookAppointment && (
+            <Button className="w-full" onClick={onBookAppointment}>
+              <Calendar className="mr-2 h-4 w-4" /> Book Appointment
+            </Button>
+          )}
+          <Button className="w-full" variant="outline" onClick={onRestart}>
+            Restart Assessment
+          </Button>
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Send, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -8,309 +8,505 @@ import ChatMessage from "./ChatMessage";
 import TypingIndicator from "./TypingIndicator";
 import RecommendationCard from "./RecommendationCard";
 import HospitalRecommendationCard from "./HospitalRecommendationCard";
+import PossibleConditionCard from "./PossibleConditionCard";
+import RemediesCard from "./RemediesCard";
+import AppointmentModal from "./AppointmentModal";
+import { languages, Lang } from "@/lib/i18n";
+
+
+
 
 import {
-  TRIAGE_QUESTIONS,
-  checkRedFlags,
-  categorizeSymptom,
-  generateRecommendation,
   isHealthRelated,
   irrelevantMessageResponse,
-  processUserAnswer,
+  checkRedFlags,
   inferPossibleDiseases,
-  detectFever,
-  Recommendation
+  inferDiseasesWithScoreAndRemedies,
+  generateRecommendation,
+  Recommendation,
 } from "@/lib/triageLogic";
+
+// -----------------------------
+// TYPES
+// -----------------------------
+interface Hospital {
+  name: string;
+  city: string;
+  specialty: string[];
+  emergency24x7: boolean;
+  maps: string;
+  distance: number;
+}
 
 const ChatInterface = () => {
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [remedies, setRemedies] = useState<string[]>([]);
+
+
   const [recommendation, setRecommendation] =
     useState<Recommendation | null>(null);
 
-  const [nearbyHospitals, setNearbyHospitals] = useState<any[] | null>(null);
+    const [possibleCondition, setPossibleCondition] = useState<{
+  disease: string;
+  confidence: number;
+} | null>(null);
 
-  const [triageState, setTriageState] = useState({
+const [showBooking, setShowBooking] = useState(false);
+
+const [lang, setLang] = useState<Lang>("en");
+const t = languages[lang];
+
+  const [nearbyHospitals, setNearbyHospitals] = useState<Hospital[]>([]);
+
+  const [state, setState] = useState({
     step: 0,
     symptom: "",
-    category: null as string | null,
-    age: "",
-    conditions: [] as string[],
+    additional: [] as string[],
+    age: 0,
+    chronic: "",          // ✅ NEW 
     duration: "",
     severity: 0,
-    additional: [] as string[],
-    hasFever: false,
-    possibleDiseases: [] as string[],
-    redFlag: null as null | { message: string; action: string },
+    diseases: [] as string[],
+    redFlag: false,
   });
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () =>
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-
-  useEffect(scrollToBottom, [messages, isTyping]);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
 
   useEffect(() => {
     addMessage(
       "assistant",
-      "👋 Hello! Tell me your main health symptom.\n\n⚠️ Chest pain or breathing trouble → Call 108."
+      "👋 Hello! Please describe your main health symptom.\n⚠️ Chest pain or breathing trouble → Call 108"
     );
   }, []);
 
-  const addMessage = (role: "user" | "assistant", content: string, isRedFlag = false) => {
+
+  // ===============================
+// INPUT VALIDATION HELPERS
+// ===============================
+
+// 🔹 Duration validator
+const isValidDuration = (text: string) => {
+  const t = text.toLowerCase();
+  return (
+    t.includes("day") ||
+    t.includes("days") ||
+    t.includes("week") ||
+    t.includes("weeks") ||
+    t.includes("month") ||
+    t.includes("months") ||
+    t.includes("hour") ||
+    t.includes("hours") ||
+    /^\d+$/.test(t)
+  );
+};
+
+// 🔹 Step-wise relevance validator
+const isAnswerRelevantForStep = (step: number, text: string) => {
+  const t = text.toLowerCase();
+
+  // Step 0 & 1 → symptoms
+  if (step === 0 || step === 1) {
+    return isHealthRelated(t) || t === "no";
+  }
+
+  // STEP 2 – Age
+  if (step === 2) {
+    const age = Number(t);
+    return !isNaN(age) && age > 0 && age <= 120;
+  }
+
+  // Step 3 → duration
+  if (step === 3) { 
+    return isValidDuration(t);
+  }
+
+  // Step 4 → chronic conditions
+  if (step === 4) {
+    return isHealthRelated(t) || t === "no";
+  }
+
+  // Step 5 → severity
+  if (step === 5) {
+    const sev = Number(t);
+    return !isNaN(sev) && sev >= 1 && sev <= 10;
+  }
+
+  return true;
+};
+
+  // -----------------------------
+  // HELPERS
+  // -----------------------------
+  const addMessage = (
+    role: "user" | "assistant",
+    content: string,
+    danger = false
+  ) => {
     setMessages(prev => [
       ...prev,
       {
         id: crypto.randomUUID(),
         role,
         content,
+        danger,
         timestamp: new Date(),
-        isRedFlag,
       },
     ]);
   };
 
-  const simulateTyping = async (cb: () => void, delay = 700) => {
+  const simulateTyping = async (cb: () => void) => {
     setIsTyping(true);
-    await new Promise(r => setTimeout(r, delay));
+    await new Promise(r => setTimeout(r, 600));
     setIsTyping(false);
     cb();
   };
 
-  // ===============================
-  // MAIN INPUT HANDLER
-  // ===============================
-  const processUserInput = async (text: string) => {
+  const restartAssessment = () => {
+    setMessages([]);
+    setRecommendation(null);
+    setNearbyHospitals([]);
+    setState({
+      step: 0,
+      symptom: "",
+      additional: [],
+      age: 0,
+      chronic: "", 
+      duration: "",
+      severity: 0,
+      diseases: [],
+      redFlag: false,
+    });
+
+    addMessage(
+      "assistant",
+      "🔄 Assessment restarted. Please describe your main health symptom."
+    );
+  };
+
+  // -----------------------------
+  // MAIN CHAT LOGIC
+  // -----------------------------
+  const handleUserInput = async (text: string) => {
     addMessage("user", text);
     setInput("");
 
-    // 🚫 Intent gate
-    if (triageState.step === 0 && !isHealthRelated(text)) {
-      const res = irrelevantMessageResponse();
-      await simulateTyping(() => addMessage("assistant", res.message));
-      return;
-    }
+    // STEP 0 – Intent + symptom
+    if (state.step === 0) {
+  if (!isHealthRelated(text)) {
+    const res = irrelevantMessageResponse();
+    return simulateTyping(() =>
+      addMessage("assistant", res.message)
+    );
+  }
 
-    // 🚨 Red flag detection
-    const redFlag = checkRedFlags(text);
-    if (redFlag) {
-      setTriageState(prev => ({ ...prev, redFlag }));
-    }
 
-    if (redFlag && triageState.step === 0) {
-      await simulateTyping(() =>
+      const redFlag = checkRedFlags(text);
+      if (redFlag) {
         addMessage(
           "assistant",
-          `🚨 ${redFlag.message}\n${redFlag.action}`,
+          `🚨 ${redFlag.message}\n📞 Emergency Number: 108`,
           true
-        )
+        );
+        setRecommendation(generateRecommendation(10, "", true));
+        loadHospitals("emergency");
+        return;
+      }
+
+      setState(s => ({ ...s, step: 1, symptom: text }));
+      return simulateTyping(() =>
+        addMessage("assistant", "Do you have any other symptoms? (or type 'no')")
       );
-        setRecommendation(
-          generateRecommendation(10, "Just started", true, null)
-        );
-
-        // Recommend nearby hospitals for follow-up (prefer cardiac if chest pain)
-        try {
-          const { recommendHospitals } = await import("@/lib/recommender");
-          const lower = text.toLowerCase();
-          const forcedCategory = lower.includes("chest") || lower.includes("chest pain")
-            ? "cardiac"
-            : categorizeSymptom(text);
-          const rec = recommendHospitals(forcedCategory, 10);
-          setNearbyHospitals(rec.hospitals.map(h => ({
-            name: h.name,
-            city: h.city,
-            specialty: h.specialty,
-            emergency24x7: h.emergency24x7,
-            maps: h.maps,
-            distance: h.distance
-          })));
-        } catch (e) {
-          setNearbyHospitals(null);
-        }
-      return;
     }
 
-    switch (triageState.step) {
-      // First user message: capture main symptom and ask about additional symptoms
-      case 0:
-        setTriageState(prev => ({
-          ...prev,
-          step: 1,
-          symptom: text,
-          category: categorizeSymptom(text),
-        }));
-        await simulateTyping(() =>
-          addMessage("assistant", "Do you have any other symptoms?")
+    // STEP 1 – Additional symptoms
+    if (state.step === 1) {
+  const t = text.toLowerCase();
+  if (!(isHealthRelated(t) || t === "no")) {
+    return simulateTyping(() =>
+      addMessage(
+        "assistant",
+        "Please describe additional health-related symptoms or type 'no'."
+      )
+    );
+  }
+
+  setState(s => ({
+    ...s,
+    step: 2,
+    additional: t === "no" ? [] : [text],
+  }));
+
+  return simulateTyping(() =>
+    addMessage("assistant", "What is your age?")
+  );
+}
+
+
+    // STEP 2 – Age
+    if (state.step === 2) {
+      const age = Number(text);
+      if (!Number.isInteger(age) || age <= 0 || age > 120) {
+        return simulateTyping(() =>
+          addMessage("assistant", "Please enter a valid age.")
         );
-        break;
-
-      // User replies with additional symptoms — infer conditions and fever automatically
-      case 1:
-        {
-          const additional = text.trim().toLowerCase();
-          const additionalArr = additional === "no" ? [] : [additional];
-          // infer diseases and fever
-          const possible = inferPossibleDiseases(text, additionalArr);
-          const hasF = detectFever(text, additionalArr);
-          setTriageState(prev => ({
-            ...prev,
-            step: 2,
-            additional: additionalArr,
-            hasFever: hasF,
-            possibleDiseases: possible,
-            category: hasF ? "infection" : prev.category,
-          }));
-          // Show the inferred possibilities to the user briefly
-          await simulateTyping(() => addMessage("assistant", `Based on symptoms, possible: ${possible.slice(0,3).join(", ") || "unspecified"}.`));
-          await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[0].question));
-        }
-        break;
-
-      // Age (was case 1 previously)
-      case 2:
-        {
-          const res = processUserAnswer(1, text);
-          if (!res.advance) {
-            await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
-            return;
-          }
-          setTriageState(prev => ({ ...prev, step: 3, age: res.value ?? text }));
-          await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[1].question));
-        }
-        break;
-
-      // Existing conditions (was case 2)
-      case 3:
-        {
-          const res = processUserAnswer(2, text);
-          if (!res.advance) {
-            await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
-            return;
-          }
-          setTriageState(prev => ({
-            ...prev,
-            step: 4,
-            conditions: (res.value as string).split(",").map(s => s.trim()),
-          }));
-          await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[2].question));
-        }
-        break;
-
-      // Duration (was case 3)
-      case 4:
-        {
-          const res = processUserAnswer(3, text);
-          if (!res.advance) {
-            await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
-            return;
-          }
-          setTriageState(prev => ({ ...prev, step: 5, duration: res.value ?? text }));
-          // Show duration options in button-like format
-          const durationMsg = `${TRIAGE_QUESTIONS[2].question}\n[Few hours] [1 day] [2 days] [3 days] [More than 3 days]`;
-          await simulateTyping(() => addMessage("assistant", durationMsg));
-        }
-        break;
-
-      // Severity (was case 4)
-      case 5:
-        {
-          const res = processUserAnswer(4, text);
-          if (!res.advance) {
-            await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
-            return;
-          }
-          setTriageState(prev => ({
-            ...prev,
-            step: 6,
-            severity: ((res.value as number) ?? parseInt(text)) || 5,
-          }));
-          await simulateTyping(() => addMessage("assistant", TRIAGE_QUESTIONS[4].question));
-        }
-        break;
-
-      // Final additional symptoms / wrap up (was case 5)
-      case 6:
-        {
-          const res = processUserAnswer(5, text);
-          if (!res.advance) {
-            await simulateTyping(() => addMessage("assistant", res.botMessage || "Please try again."));
-            return;
-          }
-          setTriageState(prev => ({ ...prev, additional: (res.value as string) === "no" ? [] : [(res.value as string)] }));
-
-          await simulateTyping(() => addMessage("assistant", "Analyzing your symptoms…"));
-
-          // Generate disease inferences
-          const possibleDiseases = inferPossibleDiseases(triageState.symptom, triageState.additional);
-          setTriageState(prev => ({ ...prev, possibleDiseases }));
-
-          const rec = generateRecommendation(
-            triageState.severity || 0,
-            triageState.duration,
-            triageState.redFlag !== null,
-            triageState.category
-          );
-
-          // Append possible diseases to recommendation
-          if (possibleDiseases && possibleDiseases.length > 0) {
-            rec.description += `\n\n**Possible conditions:** ${possibleDiseases.slice(0, 5).join(", ")}`;
-          }
-
-          setRecommendation(rec);
-        }
-        break;
+      }
+      setState(s => ({ ...s, step: 3, age }));
+      return simulateTyping(() =>
+        addMessage("assistant", "How long have you had this symptom?")
+      );
     }
+    // STEP 3 – Duration
+    if (state.step === 3) {
+  if (!isValidDuration(text)) {
+    return simulateTyping(() =>
+      addMessage(
+        "assistant",
+        "Please specify duration (e.g., 2 days, 1 week)."
+      )
+    );
+  }
+
+  setState(s => ({ ...s, step: 4, duration: text }));
+  return simulateTyping(() =>
+    addMessage(
+      "assistant",
+      "Do you have any chronic conditions? (e.g., diabetes, BP, asthma) \nType 'no' if none."
+    )
+  );
+}
+
+
+    // STEP 4 – Chronic conditions
+    if (state.step === 4) {
+  const t = text.toLowerCase();
+  if (!(isHealthRelated(t) || t === "no")) {
+    return simulateTyping(() =>
+      addMessage(
+        "assistant",
+        "Please mention a medical condition or type 'no'."
+      )
+    );
+  }
+
+  setState(s => ({ ...s, step: 5, chronic: t }));
+  return simulateTyping(() =>
+    addMessage("assistant", "Rate severity from 1–10")
+  );
+}
+
+
+    // STEP 5 – Severity + ANALYSIS
+    if (state.step === 5) {
+      const severity = Number(text);
+      if (!Number.isInteger(severity) || severity < 1 || severity > 10) {
+        return simulateTyping(() =>
+          addMessage("assistant", "Severity must be between 1 and 10.")
+        );
+      }
+
+      const diseases = inferPossibleDiseases(
+        state.symptom,
+        state.additional
+      );
+
+      const rec = generateRecommendation(
+        severity,
+        state.duration,
+        false
+      );
+
+      // 🔹 NEW: disease + confidence + remedies
+      const diseaseInsights = inferDiseasesWithScoreAndRemedies(
+        state.symptom,
+        state.additional
+      );
+
+      // ✅ SET POSSIBLE CONDITION (SEPARATE STATE)
+      if (diseaseInsights.length > 0) {
+        setPossibleCondition({
+          disease: diseaseInsights[0].disease,
+          confidence: diseaseInsights[0].confidence,
+        });
+      } else {
+        setPossibleCondition(null);
+      }
+
+      // ✅ SET REMEDIES (ONLY FOR NON-URGENT)
+      if (rec.level !== "urgent" && diseaseInsights.length > 0) {
+        setRemedies(diseaseInsights[0].remedies);
+      } else {
+        setRemedies([]);
+      }
+
+      // ❌ DO NOT PUT DISEASE OR REMEDIES IN DESCRIPTION
+      // Keep description clean
+      rec.description += `
+If symptoms worsen or do not improve, consult a doctor.
+`;
+
+      setState(s => ({
+        ...s,
+        step: 6,
+        severity,
+        diseases,
+      }));
+
+      setRecommendation(rec);
+
+      if (rec.level !== "self-care") {
+        loadHospitals("general");
+      }
+    };
+
+};
+
+  // -----------------------------
+  // MOCK HOSPITAL LOADER
+  // -----------------------------
+  const loadHospitals = (type: string) => {
+    setNearbyHospitals([
+      {
+        name: "City Care Hospital",
+        city: "Chennai",
+        specialty: [type === "emergency" ? "Emergency" : "General Medicine"],
+        emergency24x7: true,
+        maps: "https://maps.google.com",
+        distance: 2.3,
+      },
+      {
+        name: "Apollo Clinic",
+        city: "Chennai",
+        specialty: ["Physician"],
+        emergency24x7: false,
+        maps: "https://maps.google.com",
+        distance: 4.1,
+      },
+    ]);
   };
 
+  // -----------------------------
+  // RENDER
+  // -----------------------------
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
 
       <div className="border-b p-3 flex justify-between">
-        <h1 className="font-semibold">Symptom Assessment</h1>
-        <Button size="sm" onClick={() => window.location.reload()}>
+        <h1 className="font-semibold">Care Navigator</h1>
+        <Button size="sm" onClick={restartAssessment}>
           <RotateCcw className="w-4 h-4" />
         </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map(m => <ChatMessage key={m.id} {...m} />)}
+        {messages.map(m => (
+          <ChatMessage key={m.id} {...m} />
+        ))}
+
         {isTyping && <TypingIndicator />}
-        {recommendation && (
-          <>
-            <RecommendationCard recommendation={recommendation} onRestart={undefined} />
-            {recommendation.level === "urgent" && nearbyHospitals && (
-              <div className="mt-4">
-                <HospitalRecommendationCard hospitals={nearbyHospitals} title="Suggested nearby hospitals" />
-              </div>
-            )}
-          </>
-        )}
-        <div ref={messagesEndRef} />
+
+       {recommendation && (
+  <>
+    {/* 1️⃣ Recommendation */}
+    <RecommendationCard
+      recommendation={recommendation}
+      onRestart={restartAssessment}
+      onBookAppointment={() => setShowBooking(true)}
+    />
+{showBooking && (
+  <AppointmentModal
+    symptom={state.symptom}
+    onClose={() => setShowBooking(false)}
+  />
+)}
+
+
+
+    {/* 2️⃣ Possible Condition */}
+    {possibleCondition && (
+      <PossibleConditionCard
+        disease={possibleCondition.disease}
+        confidence={possibleCondition.confidence}
+      />
+    )}
+
+    {/* 3️⃣ Remedies (only if available) */}
+    <RemediesCard remedies={remedies} />
+
+    {/* 4️⃣ Hospitals */}
+    {recommendation.level !== "self-care" &&
+      nearbyHospitals.length > 0 && (
+        <HospitalRecommendationCard
+          hospitals={nearbyHospitals}
+          title="Nearby Hospitals"
+        />
+      )}
+  </>
+)}
+
+
+        <div ref={endRef} />
       </div>
 
-      {!recommendation && (
-        <form
-          onSubmit={e => {
-            e.preventDefault();
-            if (input.trim() && !isTyping) {
-              processUserInput(input.trim());
-            }
-          }}
-          className="p-4 border-t flex gap-3"
-        >
-          <Input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="Describe your symptom…"
-          />
-          <Button type="submit">
-            <Send className="w-5 h-5" />
-          </Button>
-        </form>
-      )}
+      {/* 🔴 SEVERITY STEP → TELEGRAM STYLE OPTIONS */}
+{!recommendation && state.step === 5 && (
+  <div className="p-4 border-t space-y-3">
+    <p className="text-sm font-medium text-muted-foreground">
+      How severe is your condition?
+    </p>
+
+    <div className="flex gap-3">
+      <button
+        onClick={() => handleUserInput("2")}
+        className="flex-1 p-3 rounded-lg border bg-green-50 hover:bg-green-100 text-green-700 font-semibold"
+      >
+        🟢 Low (1–3)
+      </button>
+
+      <button
+        onClick={() => handleUserInput("5")}
+        className="flex-1 p-3 rounded-lg border bg-yellow-50 hover:bg-yellow-100 text-yellow-700 font-semibold"
+      >
+        🟡 Medium (4–6)
+      </button>
+
+      <button
+        onClick={() => handleUserInput("8")}
+        className="flex-1 p-3 rounded-lg border bg-red-50 hover:bg-red-100 text-red-700 font-semibold"
+      >
+        🔴 High Alert (7–10)
+      </button>
+    </div>
+  </div>
+)}
+
+{/* 🟢 ALL OTHER STEPS → NORMAL INPUT */}
+{!recommendation && state.step !== 5 && (
+  <form
+    onSubmit={e => {
+      e.preventDefault();
+      if (input.trim() && !isTyping) {
+        handleUserInput(input.trim());
+      }
+    }}
+    className="p-4 border-t flex gap-3"
+  >
+    <Input
+      value={input}
+      onChange={e => setInput(e.target.value)}
+      placeholder="Type your answer…"
+    />
+    <Button type="submit">
+      <Send className="w-5 h-5" />
+    </Button>
+  </form>
+)}
+
     </div>
   );
 };

@@ -1,11 +1,7 @@
 // ===================================================
-// Care Navigator – Rule-Based Symptom Triage Engine
-// No AI | Fast | Offline | Deterministic | Safe
+// Care Navigator – Enhanced Rule-Based Symptom Triage
 // ===================================================
 
-// -------------------------------
-// TYPES
-// -------------------------------
 export interface Recommendation {
   level: "self-care" | "teleconsult" | "urgent";
   title: string;
@@ -13,367 +9,403 @@ export interface Recommendation {
   actions: string[];
 }
 
-export interface RedFlag {
-  message: string;
-  action: string;
-}
-
-export interface IrrelevantResponse {
-  type: "irrelevant";
-  message: string;
-}
-
-export interface ValidationResponse {
-  type: "accepted" | "retry";
-  message?: string;
-  value?: any;
-}
-
-export interface StepResult {
-  advance: boolean;
-  botMessage?: string;
-  value?: any;
-}
-
-// -------------------------------
-// HEALTH INTENT KEYWORDS
-// -------------------------------
+// ===================================================
+// HEALTH INTENT KEYWORDS (EXPANDED)
+// ===================================================
 const HEALTH_KEYWORDS = [
-  "pain","fever","cough","cold","headache","migraine",
-  "vomit","nausea","breath","breathing","chest",
-  "stomach","abdominal","dizzy","infection","injury",
-  "bleeding","seizure","fits","fainted","unconscious",
-  "symptom","sick","ill","medicine","doctor",
-  "hospital","emergency","bp","blood pressure",
-  "diabetes","asthma","temperature","fatigue","weakness","throat",
-  "diarrhea","cramps","allergy","rash","swelling","high","cold","chills","body ache","coughing","sneezing"
-  ,"congestion","sore throat","photophobia","urine","sprain","twist","bruise","cardiac","convulsions",
-  "chest pain","chest tightness","heart pain","pressure","difficulty breathing",
-  "can't breathe","shortness of breath","uncontrolled bleeding","blood won't stop","loss of taste","loss of smell"
-  ,"food poisoning","itchy eyes","recent food","lower abdomen","abdominal pain","myalgia"
+  // General
+  "pain","fever","temperature","sick","ill","weakness","fatigue","tired",
+  "body ache","chills","sweating","infection","symptom","temperature","ache","hurt","discomfort","unwell","not feeling well",
+  "wellbeing","health","condition","ailment","disease","disorder","syndrome"," issue","problem","concern","medical","clinic","hospital",
+  
+
+  // Respiratory
+  "cough","cold","sneezing","runny nose","congestion","breath","breathing",
+  "shortness of breath","wheezing","chest","chest pain","chest tightness",
+
+  // Gastrointestinal
+  "stomach","abdominal","belly","cramps","vomit","vomiting","nausea",
+  "diarrhea","loose motion","constipation","acid","gas","bloating","heartburn","indigestion",
+  "appetite","food poisoning","dysentery","diarrhoea","dehydration","abdomen","abdo","colic",
+  "bloody stool","black stool","dark urine","jaundice","yellow eyes","yellow skin","liver","hepatitis","pancreas",
+  "appendicitis","kidney stone","gallstone","stones","kidney stones","gall bladder","gallbladder","urination","urinate",
+  
+  // Neurological
+  "headache","migraine","dizzy","dizziness","faint","unconscious",
+  "seizure","fits","convulsions","blurred vision","light sensitivity","photophobia","numbness","tingling","weakness one side",
+  "paralysis","memory","confusion","balance","vertigo","tremor","shaking",
+  "seizures","epilepsy","coma","sleepiness","insomnia","nightmare","hallucination",
+  "depression","anxiety","panic attack","panic attacks","suicide attempt","psychosis","mental illness",
+  "depressive episode","anxiety disorder","obsessive compulsive disorder","ocd","ptsd",
+
+  // Cardiac
+  "heart","pressure","palpitation","cardiac","heart attack","angina","chest pain","cardiac arrest",
+
+  // Skin
+  "rash","itching","swelling","redness","burning","allergy",
+
+  // Urinary
+  "urine","burning urination","frequent urination","lower abdomen",
+
+  // ENT
+  "sore throat","throat pain","ear pain","sinus","voice loss","hoarseness","earache","snoring","snore","snoring","snorer","snorers",
+  "mouth ulcer","tonsillectomy","tonsils","adenoids","adeno","sleep apnea","sleep apnoea",
+  "sleep apnea","sleep apnoea","snoring","snore","snoring","snorer","snorers",
+  "mouth ulcer","tonsillectomy","tonsils","adenoids","adeno",
+
+  // Chronic
+  "diabetes","asthma","bp","blood pressure","hypertension","hypotension","hyperglycaemia","low bp","low blood pressure",
+  "high bp","high blood pressure","hypoglycaemia","diabetic ketoacidosis","diabetic coma","diabetic coma","diabetic ketoacidosis",
+  "chronic kidney disease","ckd","chronic obstructive pulmonary disease","copd","emphysema","bronchitis","asthmatic bronchitis",
+  "lung cancer","lung disease","respiratory disease","respiratory problem","respiratory infection","tuberculosis","tb","pneumonia"
+  ,"bronchiectasis","interstitial lung disease","pulmonary fibrosis","sarcoidosis","cystic fibrosis","pulmonary hypertension","sleep apnea"
+
 ];
 
-// -------------------------------
-// INTENT CHECK
-// -------------------------------
 export function isHealthRelated(text: string): boolean {
-  return HEALTH_KEYWORDS.some(k =>
-    text.toLowerCase().includes(k)
-  );
+  const lower = text.toLowerCase();
+  return HEALTH_KEYWORDS.some(k => lower.includes(k));
 }
 
-export function irrelevantMessageResponse(): IrrelevantResponse {
+export function irrelevantMessageResponse() {
   return {
     type: "irrelevant",
     message:
-      "I can help only with health-related concerns. Please describe your symptoms (e.g., fever, pain, cough)."
+      "❌ I can assist only with health-related symptoms.\nExample: fever, cough, headache, stomach pain."
   };
 }
 
-// -------------------------------
-// RED FLAGS
-// -------------------------------
-const RED_FLAG_PATTERNS = [
-  {
-    keywords: ["chest pain","chest tightness","heart pain","pressure","heart attack","cardiac arrest"],
-    message: "Possible cardiac-related emergency.",
-    action: "Go to the nearest 24×7 hospital or call 108 immediately."
-  },
-  {
-    keywords: ["difficulty breathing","can't breathe","shortness of breath","breathlessness"],
-    message: "Severe breathing difficulty detected.",
-    action: "Call 108 immediately."
-  },
-  {
-    keywords: ["uncontrolled bleeding","blood won't stop","bleeding heavily","severe bleeding"],
-    message: "Risk of major blood loss.",
-    action: "Apply pressure and seek emergency care. Call 108 now."
-  },
-  {
-    keywords: ["fainted","unconscious","loss of consciousness","collapsed"],
-    message: "Possible loss of consciousness.",
-    action: "Call 108 now."
-  },
-  {
-    keywords: ["seizure","fits","convulsions"],
-    message: "Seizure activity detected.",
-    action: "Seek urgent medical care. Call 108."
-  },
-  {
-    keywords: ["blood vomit","vomiting blood","hematemesis","coughing blood","blood cough"],
-    message: "Severe internal bleeding detected.",
-    action: "Call 108 immediately. Do not eat or drink."
-  },
-  {
-    keywords: ["severe abdominal pain","intense pain","unbearable pain","acute pain"],
-    message: "Severe abdominal pain detected.",
-    action: "Call 108 immediately. Seek emergency care."
-  },
-  {
-    keywords: ["stroke","facial drooping","arm weakness","speech difficulty"],
-    message: "Possible stroke detected.",
-    action: "Call 108 immediately. Time is critical."
-  },
-  {
-    keywords: ["poison","overdose","toxic","poisoning"],
-    message: "Possible poisoning or overdose.",
-    action: "Call emergency (108) or poison control immediately."
-  },
-  {
-    keywords: ["severe allergic reaction","anaphylaxis","swelling throat","unable to swallow"],
-    message: "Severe allergic reaction detected.",
-    action: "Call 108 immediately. Seek epinephrine if available."
-  }
+// ===================================================
+// RED FLAGS (LIFE-THREATENING)
+// ===================================================
+const RED_FLAGS = [
+  ["chest pain","heart pain","pressure","cardiac"],
+  ["difficulty breathing","shortness of breath","can't breathe"],
+  ["unconscious","fainted","collapsed"],
+  ["seizure","fits","convulsions"],
+  ["vomiting blood","blood vomit","coughing blood"],
+  ["severe abdominal pain","unbearable pain"],
+  ["stroke","slurred speech","face drooping","arm weakness"],
+  ["severe allergic reaction","anaphylaxis","swelling throat","difficulty swallowing"],
+  ["severe burns","major burns"],
+  ["severe head injury","head trauma","brain injury"],
+  ["high fever in infant","fever baby under 2 months"],
+  ["severe bleeding","bleeding out"],
+  ["severe chest pain","heart pain","pressure","cardiac"],
+  ["severe abdominal pain","unbearable pain"],
+  ["stroke","slurred speech","face drooping","arm weakness"],
+  ["severe allergic reaction","anaphylaxis","swelling throat","difficulty swallowing"],
+  ["severe burns","major burns"],
+  ["severe head injury","head trauma","brain injury"],
+  ["high fever in infant","fever baby under 2 months"],
+  ["severe bleeding","bleeding out"],
+  ["severe chest pain","heart pain","pressure","cardiac"],
+  ["severe abdominal pain","unbearable pain"],
+  ["stroke","slurred speech","face drooping","arm weakness"],
+  ["severe allergic reaction","anaphylaxis","swelling throat","difficulty swallowing"],
+  ["severe burns","major burns"],
+  ["severe head injury","head trauma","brain injury"],
+  ["high fever in infant","fever baby under 2 months"],
+  ["severe bleeding","bleeding out"],
+  ["severe chest pain","heart pain","pressure","cardiac"],
+  ["severe abdominal pain","unbearable pain"],
+  ["stroke","slurred speech","face drooping","arm weakness"],
+  ["severe allergic reaction","anaphylaxis","swelling throat","difficulty swallowing"],
+  ["severe burns","major burns"],
+  ["severe head injury","head trauma","brain injury"],
+  ["high fever in infant","fever baby under 2 months"],
+  ["severe bleeding","bleeding out"],
+  ["severe chest pain","heart pain","pressure","cardiac"],
+  ["severe abdominal pain","unbearable pain"],
+  ["stroke","slurred speech","face drooping","arm weakness"],
+  ["severe allergic reaction","anaphylaxis","swelling throat","difficulty swallowing"],
+  ["severe burns","major burns"],
+  ["severe head injury","head trauma","brain injury"],
+  ["high fever in infant","fever baby under 2 months"],
+  ["severe bleeding","bleeding out"]
 ];
 
-export function checkRedFlags(text: string): RedFlag | null {
+export function checkRedFlags(text: string) {
   const lower = text.toLowerCase();
-  for (const f of RED_FLAG_PATTERNS) {
-    if (f.keywords.some(k => lower.includes(k))) {
-      return { message: f.message, action: f.action };
+  for (const keys of RED_FLAGS) {
+    if (keys.some(k => lower.includes(k))) {
+      return {
+        message: "Possible medical emergency detected.",
+        action: "📞 Call emergency services (108) immediately."
+      };
     }
   }
   return null;
 }
 
-// -------------------------------
-// DISEASE INFERENCE
-// -------------------------------
-// Map of common diseases to related keywords (expandable)
+// ===================================================
+// DISEASE ↔ SYMPTOM KNOWLEDGE BASE (EXPANDED)
+// ===================================================
 const DISEASE_KEYWORDS: Record<string, string[]> = {
-  "Common Cold": ["runny nose", "sore throat", "sneezing", "nasal", "congestion", "cold", "high temperature", "throat", "coughing"],
-  "Influenza (Flu)": ["fever", "high fever", "chills", "body ache", "myalgia", "fatigue", "weakness", "temperature", "coughing"],
-  "Migraine": ["migraine", "headache", "photophobia", "nausea", "vomiting", "throbbing"],
-  "Tension Headache": ["headache", "tight", "pressing", "stress"],
-  "Gastritis / Stomach Infection": ["stomach", "abdominal", "pain", "nausea", "vomit", "diarrhea", "cramps", "abdominal pain"],
-  "COVID-19": ["loss of taste", "loss of smell", "fever", "cough", "breath", "shortness of breath", "fatigue", "weakness", "temperature"],
-  "Urinary Tract Infection": ["burning", "urine", "frequency", "lower abdomen", "abdominal pain"],
-  "Food Poisoning": ["vomit", "diarrhea", "cramps", "recent food", "food poisoning", "abdominal pain", "nausea"],
-  "Allergic Rhinitis": ["itchy eyes", "sneezing", "allergy", "runny nose", "congestion", "sore throat"],
-  "Allergic Skin Reaction": ["rash", "swelling", "itching", "allergy", "skin", "itch"],
-  "Sprain / Strain": ["injury", "sprain", "swelling", "bruise", "twist", "pain"],
-  "Bronchitis": ["cough", "coughing", "chest", "breathing", "shortness of breath", "fatigue", "weakness"],
-  "Asthma Attack": ["difficulty breathing", "shortness of breath", "chest", "breathing", "pressure"],
-  "Bacterial Throat Infection": ["sore throat", "throat", "fever", "temperature", "pain", "difficulty swallowing"],
-  "Viral Throat Infection": ["sore throat", "throat", "fever", "congestion", "coughing"],
-  "Cardiac Condition": ["chest pain", "chest tightness", "heart pain", "pressure", "cardiac", "breathing difficulty"],
-  "Seizure Disorder": ["seizure", "fits", "convulsions", "loss of consciousness", "fainting"],
-  "Weakness / Fatigue Syndrome": ["fatigue", "weakness", "tiredness", "fever", "body ache"],
-  "Skin Infection": ["rash", "swelling", "pain", "infection", "burning", "itch"],
-  "Dengue Fever": ["fever", "high fever", "body ache", "myalgia", "chills", "fatigue", "weakness", "headache"],
-  "Malaria": ["fever", "high fever", "chills", "sweating", "body ache", "weakness", "fatigue"],
-  "Typhoid": ["fever", "high fever", "temperature", "weakness", "abdominal pain", "headache", "body ache"],
-  "Chickenpox": ["rash", "fever", "temperature", "itching", "swelling", "body ache"],
-  "Measles": ["rash", "fever", "cough", "runny nose", "coughing", "conjunctivitis"],
-  "Pertussis (Whooping Cough)": ["cough", "coughing", "vomiting", "breathing difficulty", "shortness of breath"],
-  "Pneumonia": ["fever", "temperature", "cough", "coughing", "chest pain", "breathing difficulty", "shortness of breath", "fatigue"],
-  "Laryngitis": ["sore throat", "throat", "loss of voice", "pain", "coughing"],
-  "Sinusitis": ["congestion", "headache", "sore throat", "throat", "cough", "pressure", "nasal"],
-  "Angina": ["chest pain", "chest tightness", "pressure", "heart pain", "cardiac", "difficulty breathing"],
-  "Appendicitis": ["abdominal pain", "nausea", "vomiting", "fever", "temperature", "pain"],
-  "Kidney Stones": ["severe pain", "abdominal pain", "lower abdomen", "burning", "urine"],
-  "Arthritis / Joint Pain": ["joint pain", "swelling", "pain", "stiffness", "weakness"],
-  "Anemia": ["weakness", "fatigue", "dizziness", "dizzy", "cold"],
-  "Hypertension": ["headache", "dizziness", "dizzy", "chest pain", "pressure"],
-  "Hypothyroidism": ["fatigue", "weakness", "cold", "temperature", "weight gain", "tiredness"],
-  "Hyperthyroidism": ["weakness", "sweating", "temperature", "heart pain", "pressure", "anxiety"],
-  "Eye Strain": ["itchy eyes", "headache", "photophobia", "pain"],
-  "Ear Infection": ["ear pain", "fever", "temperature", "hearing loss", "pain"],
-  "Dermatitis": ["rash", "itching", "swelling", "burning", "itch", "skin"],
-  "Cellulitis": ["rash", "swelling", "pain", "infection", "burning", "redness"],
-  "Gout": ["joint pain", "swelling", "pain", "fever", "redness"],
-  "Sciatica": ["pain", "lower abdomen", "weakness", "shooting pain", "nerve pain"],
-  "Muscle Strain": ["pain", "swelling", "bruise", "injury", "weakness", "stiffness"],
-  "Heat Stroke": ["fever", "high fever", "temperature", "weakness", "dizziness", "fainting", "sweating"],
-  "Vertigo": ["dizziness", "dizzy", "nausea", "loss of balance", "vomiting"],
-  "Constipation": ["abdominal pain", "cramps", "pain", "diarrhea"],
-  "Diabetes Complications": ["weakness", "fatigue", "frequent urination", "urine"],
-  "Anaphylaxis": ["difficulty breathing", "shortness of breath", "swelling", "rash", "pressure", "rapid heartbeat"],
-  "Migraine Variant": ["migraine", "headache", "nausea", "vomiting", "weakness", "photophobia"],
-  "Psoriasis": ["rash", "swelling", "itching", "skin", "pain", "burning"],
-  "Eczema": ["rash", "itching", "swelling", "skin", "burning", "itch"],
-  "Hepatitis": ["abdominal pain", "nausea", "vomiting", "fever", "weakness", "fatigue", "jaundice"],
-  "Pancreatitis": ["severe pain", "abdominal pain", "nausea", "vomiting", "fever"],
+  // Fever-related
+  "Viral Fever": ["fever","temperature","body ache","fatigue","weakness"],
+  "Dengue": ["high fever","body ache","joint pain","headache","fatigue"],
+  "Malaria": ["fever","chills","sweating","weakness"],
+  "Typhoid": ["fever","abdominal pain","weakness","headache"],
+
+  // Respiratory
+  "Common Cold": ["cold","sneezing","runny nose","congestion"],
+  "Flu (Influenza)": ["fever","chills","body ache","fatigue","cough"],
+  "COVID-19": ["fever","cough","loss of smell","loss of taste","breath"],
+  "Asthma Attack": ["wheezing","shortness of breath","breathing","chest"],
+
+  // Gastrointestinal
+  "Gastritis": ["stomach pain","abdominal pain","vomiting","nausea","acid"],
+  "Food Poisoning": ["vomiting","diarrhea","cramps","abdominal pain"],
+  "Constipation": ["abdominal pain","bloating","gas"],
+
+  // Neurological
+  "Migraine": ["migraine","headache","photophobia","vomiting"],
+  "Tension Headache": ["headache","stress","pressure"],
+  "Vertigo": ["dizziness","nausea","loss of balance"],
+
+  // Cardiac
+  "Angina / Cardiac Issue": ["chest pain","pressure","shortness of breath"],
+
+  // Skin
+  "Allergic Reaction": ["rash","itching","swelling","allergy"],
+  "Skin Infection": ["redness","swelling","pain","burning"],
+
+  // Urinary
+  "Urinary Tract Infection (UTI)": ["burning urination","frequent urination","lower abdomen"],
+
+  // ENT
+  "Throat Infection": ["sore throat","throat pain","fever"],
+  "Sinusitis": ["headache","sinus","congestion","facial pain"],
+
+  // General
+  "General Infection": ["fever","weakness","fatigue","body ache"]
 };
 
-export function inferPossibleDiseases(text: string, additionalSymptoms: string[] = []): string[] {
-  const lower = (text + " " + additionalSymptoms.join(" ")).toLowerCase();
+// ===================================================
+// DISEASE INFERENCE ENGINE (SCORING)
+// ===================================================
+export function inferPossibleDiseases(
+  mainSymptom: string,
+  additionalSymptoms: string[]
+): string[] {
+
+  const text = (mainSymptom + " " + additionalSymptoms.join(" ")).toLowerCase();
   const scores: Record<string, number> = {};
-  for (const [disease, kws] of Object.entries(DISEASE_KEYWORDS)) {
-    scores[disease] = 0;
-    for (const k of kws) {
-      if (lower.includes(k)) scores[disease] += 1;
+
+  for (const [disease, keywords] of Object.entries(DISEASE_KEYWORDS)) {
+    let score = 0;
+    for (const kw of keywords) {
+      if (text.includes(kw)) score++;
     }
+    if (score > 0) scores[disease] = score;
   }
-  // Return diseases with at least one match, sorted by score desc
+
   return Object.entries(scores)
-    .filter(([, sc]) => sc > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([d]) => d);
+    .map(([disease]) => disease);
 }
 
-export function detectFever(text: string, additionalSymptoms: string[] = []): boolean {
-  const feverKws = ["fever", "temperature", "hot", "febrile", "chills", "high fever"];
-  const lower = (text + " " + additionalSymptoms.join(" ")).toLowerCase();
-  return feverKws.some(k => lower.includes(k));
-}
-
-// -------------------------------
-// CATEGORY
-// -------------------------------
-export function categorizeSymptom(symptom: string): string {
-  const s = symptom.toLowerCase();
-  if (s.includes("breath") || s.includes("cough") || s.includes("chest")) return "respiratory";
-  if (s.includes("fever") || s.includes("infection")) return "infection";
-  if (s.includes("headache") || s.includes("dizzy")) return "neurological";
-  if (s.includes("stomach") || s.includes("vomit")) return "gastro";
-  if (s.includes("pain") || s.includes("injury")) return "general-pain";
-  return "general";
-}
-
-// -------------------------------
-// TRIAGE QUESTIONS
-// -------------------------------
-export const TRIAGE_QUESTIONS = [
-  { id: 1, question: "What is your age?", options: [] },
-  {
-    id: 2,
-    question: "Do you have any existing medical conditions? (e.g., diabetes, asthma, BP)",
-    options: []
-  },
-  {
-    id: 3,
-    question: "How long have you had this symptom? \n [Few hours, 1 day, 2 days, 3 days, More than 3 days]",
-    options: ["Few hours", "1 day", "2 days","3 days", "More than 3 days"]
-  },
-  {
-    id: 4,
-    question: "On a scale of 1–10, how severe is your symptom?",
-    options: ["1","2","3","4","5","6","7","8","9","10"]
-  },
-  { id: 5, question: "Do you have any additional symptoms?", options: [] }
-];
-
-// -------------------------------
-// ANSWER VALIDATION
-// -------------------------------
-export function validateAnswer(
-  questionId: number,
-  answer: string
-): ValidationResponse {
-
-  const text = answer.trim().toLowerCase();
-
-  switch (questionId) {
-
-    case 1: {
-      const age = Number(text);
-      if (!Number.isInteger(age) || age <= 0 || age > 120) {
-        return { type: "retry", message: "I can help you only with medical related problems \nPlease enter a valid age in numbers (e.g., 25)." };
-      }
-      return { type: "accepted", value: age };
-    }
-
-    case 2: {
-      if (!isHealthRelated(text) && text !== "no" && text !== "none") {
-        return { type: "retry", message: "Please mention a medical condition or type 'no'." };
-      }
-      return { type: "accepted", value: text };
-    }
-
-    case 3: {
-      const allowed = ["few hours", "1 day", "2–3 days", "more than 3 days"];
-      if (!allowed.some(d => text.includes(d))) {
-        return { type: "retry", message: "Please select one of the given duration options." };
-      }
-      return { type: "accepted", value: text };
-    }
-
-    case 4: {
-      const sev = Number(text);
-      if (!Number.isInteger(sev) || sev < 1 || sev > 10) {
-        return { type: "retry", message: "Severity must be a number between 1 and 10." };
-      }
-      return { type: "accepted", value: sev };
-    }
-
-    case 5: {
-      if (!isHealthRelated(text) && text !== "no") {
-        return { type: "retry", message: "Please describe health-related symptoms or type 'no'." };
-      }
-      return { type: "accepted", value: text };
-    }
-
-    default:
-      return { type: "accepted", value: text };
-  }
-}
-
-// -------------------------------
-// ✅ STEP CONTROLLER (THE REAL FIX)
-// -------------------------------
-export function processUserAnswer(
-  questionId: number,
-  userInput: string
-): StepResult {
-
-  const validation = validateAnswer(questionId, userInput);
-
-  if (validation.type === "retry") {
-    return {
-      advance: false,
-      botMessage: validation.message
-    };
-  }
-
-  return {
-    advance: true,
-    value: validation.value
-  };
-}
-
-// -------------------------------
-// RECOMMENDATION ENGINE
-// -------------------------------
+// ===================================================
+// FINAL RECOMMENDATION ENGINE
+// ===================================================
 export function generateRecommendation(
   severity: number,
   duration: string,
-  redFlag: boolean,
-  category: string | null
+  redFlag: boolean
 ): Recommendation {
 
-  if (redFlag) {
+  if (redFlag || severity >= 9) {
     return {
       level: "urgent",
-      title: "Emergency Attention Required",
-      description: "A serious symptom pattern was detected.",
-      actions: [
-        "Go to the nearest emergency hospital",
-        "Call 108 immediately"
-      ]
+      title: "🚨 Emergency Care Required",
+      description:
+        "Your symptoms suggest a potentially serious condition that needs immediate medical attention.",
+      actions: ["Call 108 immediately", "Go to nearest emergency hospital"]
     };
   }
 
-  if (severity >= 8 || duration.includes("More than 3")) {
+  if (severity >= 5 || duration.toLowerCase().includes("more")) {
     return {
       level: "teleconsult",
       title: "Doctor Consultation Recommended",
-      description: "Medical evaluation within 24 hours is advised.",
-      actions: [
-        "Avoid self-medication",
-        "Monitor symptoms closely"
-      ]
+      description:
+        "Your symptoms may require evaluation by a medical professional.",
+      actions: ["Book doctor appointment", "Avoid self-medication"]
     };
   }
 
   return {
     level: "self-care",
     title: "Self-Care Suggested",
-    description: "Your symptoms appear manageable at home.",
-    actions: [
-      "Get adequate rest",
-      "Stay hydrated",
-      "Monitor for worsening"
-    ]
+    description:
+      "Your symptoms appear mild. Home care and monitoring are advised.",
+    actions: ["Home remedies", "Monitor symptoms", "Book appointment if needed"]
   };
+}// ===================================================
+// 🆕 DISEASE-SPECIFIC REMEDIES (SAFE, NON-PRESCRIPTIVE)
+// ===================================================
+const DISEASE_REMEDIES: Record<string, string[]> = {
+  "Viral Fever": [
+    "Adequate rest",
+    "Drink warm fluids",
+    "Paracetamol if fever persists",
+    "Monitor temperature regularly"
+  ],
+  "Dengue": [
+    "Strict rest",
+    "Plenty of oral fluids",
+    "Avoid painkillers like ibuprofen",
+    "Consult doctor immediately if bleeding occurs"
+  ],
+  "Malaria": [
+    "Consult doctor for blood test",
+    "Rest and hydration",
+    "Avoid self-medication"
+  ],
+  "Typhoid": [
+    "Soft diet",
+    "Hydration",
+    "Medical consultation required"
+  ],
+  "Common Cold": [
+    "Steam inhalation",
+    "Warm salt water gargle",
+    "Plenty of fluids",
+    "Adequate rest"
+  ],
+  "Flu (Influenza)": [
+    "Rest and hydration",
+    "Warm fluids",
+    "Avoid cold exposure"
+  ],
+  "COVID-19": [
+    "Isolate and monitor symptoms",
+    "Hydration and rest",
+    "Consult doctor if breathing worsens"
+  ],
+  "Asthma Attack": [
+    "Use prescribed inhaler",
+    "Sit upright",
+    "Avoid triggers",
+    "Seek emergency help if no relief"
+  ],
+  "Gastritis": [
+    "Small frequent meals",
+    "Avoid spicy and oily food",
+    "Warm water",
+    "Do not lie down immediately after eating"
+  ],
+  "Food Poisoning": [
+    "ORS (oral rehydration solution)",
+    "Light meals",
+    "Avoid outside food",
+    "Monitor dehydration"
+  ],
+  "Migraine": [
+    "Rest in dark, quiet room",
+    "Avoid screen exposure",
+    "Adequate sleep",
+    "Hydration"
+  ],
+  "Vertigo": [
+    "Avoid sudden head movements",
+    "Sit or lie down immediately",
+    "Hydration"
+  ],
+  "Angina / Cardiac Issue": [
+    "Immediate medical evaluation required",
+    "Avoid exertion",
+    "Emergency care if pain persists"
+  ],
+  "Allergic Reaction": [
+    "Avoid known allergens",
+    "Cold compress",
+    "Loose cotton clothing"
+  ],
+  "Urinary Tract Infection (UTI)": [
+    "Drink plenty of water",
+    "Do not hold urine",
+    "Maintain hygiene",
+    "Consult doctor if fever occurs"
+  ],
+  "Throat Infection": [
+    "Warm salt water gargle",
+    "Warm fluids",
+    "Voice rest"
+  ],
+  "Sinusitis": [
+    "Steam inhalation",
+    "Warm compress",
+    "Hydration"
+  ],
+  "General Infection": [
+    "Adequate rest",
+    "Hydration",
+    "Monitor symptoms"
+  ],
+  "Constipation": [
+    "Fiber-rich diet",
+    "Stay hydrated",
+    "Regular exercise",
+    "Consult doctor if severe"
+  ],
+  "Tension Headache": [
+    "Relaxation techniques",
+    "Massage",
+    "Heat/cold therapy",
+    "Avoid stressors"
+  ],
+  "Skin Infection": [
+    "Keep area clean and dry",
+    "Avoid scratching",
+    "Use mild antiseptics"
+  ],
+  
+};
+
+// ===================================================
+// 🆕 DISEASE INFERENCE WITH CONFIDENCE SCORE + REMEDIES
+// ===================================================
+export interface DiseaseWithConfidence {
+  disease: string;
+  confidence: number; // percentage
+  remedies: string[];
 }
+
+export function inferDiseasesWithScoreAndRemedies(
+  mainSymptom: string,
+  additionalSymptoms: string[]
+): DiseaseWithConfidence[] {
+
+  const text = (mainSymptom + " " + additionalSymptoms.join(" ")).toLowerCase();
+  const results: DiseaseWithConfidence[] = [];
+
+  for (const [disease, keywords] of Object.entries(DISEASE_KEYWORDS)) {
+    let matched = 0;
+
+    for (const kw of keywords) {
+      if (text.includes(kw)) matched++;
+    }
+
+    if (matched > 0) {
+      const confidence = Math.min(
+        Math.round((matched / keywords.length) * 100),
+        95 // safety cap
+      );
+
+      results.push({
+        disease,
+        confidence,
+        remedies: DISEASE_REMEDIES[disease] || [
+          "Rest",
+          "Hydration",
+          "Consult doctor if symptoms persist"
+        ]
+      });
+    }
+  }
+
+  return results.sort((a, b) => b.confidence - a.confidence);
+}
+
